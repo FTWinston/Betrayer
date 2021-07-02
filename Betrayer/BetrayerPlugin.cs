@@ -8,16 +8,80 @@ namespace Betrayer
     public class BetrayerPlugin : BaseUnityPlugin
     {
         // TODO: put these in config settings
-        const int minimumPlayersToStart = 3;
-        const string targetBossSpawnerID = "Dragonqueen";
-        const string targetBossName = "Moder"; // TODO: is there a resource string for this?
+        const int minimumPlayersToAllocateBetrayer = 3;
+        //const string targetBossSpawnerID = "Dragonqueen";
+        //const string targetBossName = "Moder"; // TODO: is there a resource string for this?
+        const string targetBossSpawnerID = "Eikthyrnir";
+        const string targetBossName = "Eikthyr"; // TODO: is there a resource string for this?
         const string goalItemID = "DragonEgg";
         const string goalItemName = "wyvern egg"; // TODO: is there a resource string for this?
+        
+        const float targetItemSpawnHeight = 5;
+        //const float targetItemSpawnCheckDelay = 10;
+        //const float targetItemSpawnCheckInterval = 30;
+
+        private static BetrayerPlugin instance;
+
+        // Game variables
+        static bool hasSetupLocations = false;
+        static Vector3 spawnPosition;
+        static Vector3 targetPosition;
+        static string betrayerPlayerName = null;
+        static ZDOID betrayerPlayerID = ZDOID.None;
+
+        public BetrayerPlugin()
+        {
+            instance = this;
+        }
 
         public void Awake()
         {
             Harmony.CreateAndPatchAll(GetType());
         }
+
+        [HarmonyPatch(typeof(Game), "Start")]
+        [HarmonyPostfix]
+        static void GameStart()
+        {
+            Debug.Log($"GameStart");
+            betrayerPlayerName = null;
+            betrayerPlayerID = ZDOID.None;
+            hasSetupLocations = false;
+        }
+
+        private static void SetupLocations()
+        {
+            Debug.Log("SetupLocations");
+
+            spawnPosition = Utils.FindLocation("StartTemple") ?? Vector3.zero;
+
+            targetPosition = (Utils.FindLocation(targetBossSpawnerID) ?? Vector3.zero) + Vector3.up * targetItemSpawnHeight;
+
+            //instance.InvokeRepeating(nameof(SpawnTargetItem), targetItemSpawnCheckDelay, targetItemSpawnCheckInterval);
+            
+            hasSetupLocations = true;
+        }
+
+        /*
+        static System.Action delayedAction = null;
+        static double delayedActionTime;
+
+        [HarmonyPatch(typeof(Game), "Update")]
+        [HarmonyPostfix]
+        static void GameTick()
+        {
+            if (delayedAction == null)
+                return;
+
+            var currentTime = ZNet.instance.GetTimeSeconds();
+
+            if (currentTime >= delayedActionTime)
+            {
+                delayedAction();
+                delayedAction = null;
+            }
+        }
+        */
 
         /*
         // These methods run only on the client.
@@ -47,6 +111,14 @@ namespace Betrayer
         }
         */
 
+        [HarmonyPatch(typeof(Player), nameof(Player.IsPVPEnabled))]
+        [HarmonyPrefix]
+        static bool IsPVPEnabled(ref bool __result)
+        {
+            __result = true;
+            return true;
+        }
+
         [HarmonyPatch(typeof(ZNet), "RPC_CharacterID")]
         [HarmonyPostfix]
         static void PlayerSpawned(ZNet __instance, ZRpc rpc, ZDOID characterID)
@@ -60,6 +132,12 @@ namespace Betrayer
             var peer = __instance.GetPeer(characterID.userID);
 
             Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {__instance.GetNrOfPlayers()} player(s)");
+
+            if (!hasSetupLocations)
+            {
+                SetupLocations();
+            }
+
 
             /*
             foreach (var playerInfo in __instance.GetPlayerList())
@@ -80,76 +158,34 @@ namespace Betrayer
 
             SendTargetLocation(characterID.userID);
 
-            SendMessage(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
-        }
-
-        private static void SendMessage(long userID, MessageHud.MessageType type, string message)
-        {
-            Debug.Log($"Sending message to {userID}: {message}");
-            
-            ZRoutedRpc.instance.InvokeRoutedRPC(userID, nameof(MessageHud.ShowMessage), (object)(int)type, (object)message);
-        }
-
-        private static void SendMessageToAll(MessageHud.MessageType type, string message)
-        {
-            Debug.Log($"Sending message to all: {message}");
-
-            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, nameof(MessageHud.ShowMessage), (object)(int)type, (object)message);
+            Utils.Message(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
         }
 
         private static void SendTargetLocation(long userID)
         {
-            ZoneSystem.LocationInstance closest;
-            if (ZoneSystem.instance.FindClosestLocation(targetBossSpawnerID, Vector3.zero, out closest))
-            {
-                ZRoutedRpc.instance.InvokeRoutedRPC(userID, "DiscoverLocationRespons", (object)$"Collect {goalItemName} here", (object)(int)Minimap.PinType.Boss, (object)closest.m_position);
-            }
-            else
-            {
-                Debug.LogWarning($"Failed to find location of {targetBossSpawnerID}, cannot mark map");
-            }
+            Utils.SendMapLocation(userID, $"Collect {goalItemName} here", targetPosition, Minimap.PinType.Boss);
         }
 
-        [HarmonyPatch(typeof(Game), "Start")]
-        [HarmonyPostfix]
-        static void GameStart()
+        private void SpawnTargetItem()
         {
-            Debug.Log($"Game Start");
-            betrayerPlayerName = null;
-            betrayerPlayerID = ZDOID.None;
+            var targetItem = Utils.SpawnItem(goalItemID, targetPosition);
 
-            // This is run every time the server starts, so we don't really want it.
-            // We only want when a game actually starts from the beginning.
-        }
+            var targetItemDrop = targetItem
+                .GetComponent<ItemDrop>();
 
-        static string betrayerPlayerName = null;
-        static ZDOID betrayerPlayerID = ZDOID.None;
-
-        /*
-        static System.Action delayedAction = null;
-        static double delayedActionTime;
-
-        [HarmonyPatch(typeof(Game), "Update")]
-        [HarmonyPostfix]
-        static void GameTick()
-        {
-            if (delayedAction == null)
-                return;
-
-            var currentTime = ZNet.instance.GetTimeSeconds();
-
-            if (currentTime >= delayedActionTime)
+            if (targetItemDrop != null)
             {
-                delayedAction();
-                delayedAction = null;
+                targetItemDrop.m_autoPickup = false;
             }
         }
-        */
 
         [HarmonyPatch(typeof(EnvMan), "OnEvening")]
         [HarmonyPostfix]
         static void EveningFalls()
         {
+            if (hasSetupLocations)
+                instance.SpawnTargetItem();
+
             if (betrayerPlayerName == null && Player.m_localPlayer == null)
                 AllocateBetrayer();
         }
@@ -168,7 +204,7 @@ namespace Betrayer
         {
             var allPlayers = ZNet.instance.GetPlayerList();
 
-            if (allPlayers.Count < minimumPlayersToStart)
+            if (allPlayers.Count < minimumPlayersToAllocateBetrayer)
             {
                 return false;
             }
@@ -183,16 +219,13 @@ namespace Betrayer
                     ? "You must <color=red>betray</color> your companions.\nStop them from retrieving the wyvern egg!"
                     : "One of your companions has been chosen\nto <color=red>betray</color> you.\nYou are not the betrayer!";
 
-                SendMessage(player.m_characterID.userID, MessageHud.MessageType.Center, message);
+                Utils.Message(player.m_characterID.userID, MessageHud.MessageType.Center, message);
             }
 
             return true;
         }
 
-        //public bool Interact(Humanoid user, bool hold);
-        //public bool UseItem(Humanoid user, ItemDrop.ItemData item);
-
-
+        /*
         [HarmonyPatch(typeof(OfferingBowl), nameof(OfferingBowl.Interact))]
         [HarmonyPrefix]
         static bool BossSpawnerInteract(OfferingBowl __instance, Humanoid user, bool hold)
@@ -237,6 +270,7 @@ namespace Betrayer
 
             return false; // Returning false disables the original method.
         }
+        */
 
         // TODO: detect item dropping back at the start ... somehow
 
