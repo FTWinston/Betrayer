@@ -66,12 +66,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BetrayerPlugin.cs" />
+    <Compile Include="Powers\EternalNightPlugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Utils.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy /Y "$(TargetDir)$(ProjectName).dll" "C:\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server\BepInEx\plugins\$(ProjectName).dll"
-copy /Y "$(TargetDir)$(ProjectName).pdb" "C:\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server\BepInEx\plugins\$(ProjectName).pdb"</PostBuildEvent>
+    <PostBuildEvent>$(ProjectDir)CopyDLLS.bat</PostBuildEvent>
   </PropertyGroup>
 </Project>
