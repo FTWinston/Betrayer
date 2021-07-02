@@ -52,7 +52,8 @@ namespace Betrayer
         static string betrayerPlayerName = null;
         static ZDOID betrayerPlayerID = ZDOID.None;
 
-        static double allocationDelay = 1260;
+        const int minimumPlayersToStart = 3;
+        const string goalItem = "DragonEgg";
 
         /*
         [HarmonyPatch(typeof(Game), "Update")]
@@ -79,13 +80,13 @@ namespace Betrayer
             return player.GetZDOID() == betrayerPlayerID;
         }
 
-        private static void AllocateBetrayer()
+        private static bool AllocateBetrayer()
         {
             var allPlayers = Player.GetAllPlayers();
 
-            if (allPlayers.Count < 1)
+            if (allPlayers.Count < minimumPlayersToStart)
             {
-                return;
+                return false;
             }
 
             var betrayerPlayer = allPlayers[Random.Range(0, allPlayers.Count - 1)];
@@ -100,6 +101,8 @@ namespace Betrayer
 
                 player.Message(MessageHud.MessageType.Center, message);
             }
+
+            return true;
         }
 
         [HarmonyPatch(typeof(OfferingBowl), nameof(OfferingBowl.Interact))]
@@ -111,13 +114,15 @@ namespace Betrayer
             //if (boss type isnt the selected one)
                 //return true;
 
-            user.GetInventory().AddItem("DragonEgg", 1, 1, 0, user.GetOwner(), user.name);
+            user.GetInventory().AddItem(goalItem, 1, 1, 0, user.GetOwner(), user.name);
 
             // Play effect
             if ((bool)(Object)__instance.m_itemSpawnPoint)
                 __instance.m_fuelAddedEffects.Create(__instance.m_itemSpawnPoint.position, __instance.transform.rotation);
 
-            user.Message(MessageHud.MessageType.Center, "$msg_offerdone");
+            // If no betrayer already allocated, definitely do so now...
+            if (betrayerPlayerName == null && !AllocateBetrayer())
+                user.Message(MessageHud.MessageType.Center, "$msg_offerdone");
 
             return false; // Returning false disables the original method.
         }
@@ -126,11 +131,8 @@ namespace Betrayer
 
         /*
         To save world data, patch ZPackage.GetArray, only when called from within World.SaveWorldMetaData, to also save "the betrayer" if that's been set.
-        To load world data, patch ZPackage.ReadInt, only when called for the 2nd time from within World.Loadworld, to also load "the betrayer" if specified there. 
+        To load world data, patch ZPackage.ReadInt, only when called for the 2nd time from within World.Loadworld, to also load "the betrayer" if specified there.
         */
-
-        // public string GetHoverText() => this.m_activeObject.activeSelf ? "Activated waystone" : Localization.instance.Localize("Waystone\n[<color=yellow><b>$KEY_Use</b></color>] Activate");
-
 
         /*
         Have the raven introduce everything you need. Raven.Spawn and/or Raven.Talk are the methods to override there...
