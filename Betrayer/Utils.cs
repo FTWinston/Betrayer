@@ -54,6 +54,5 @@ namespace Betrayer
 
             ZRoutedRpc.instance.InvokeRoutedRPC(userID, "DiscoverLocationRespons", (object)label, (object)(int)type, (object)position);
         }
-
     }
 }

@@ -1,6 +1,8 @@
 ﻿using BepInEx;
 using HarmonyLib;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Betrayer
 {
@@ -9,21 +11,25 @@ namespace Betrayer
     {
         // TODO: put these in config settings
         const int minimumPlayersToAllocateBetrayer = 3;
+
         //const string targetBossSpawnerID = "Dragonqueen";
         //const string targetBossName = "Moder"; // TODO: is there a resource string for this?
+        //const string goalItemID = "DragonEgg";
+        //const string goalItemName = "wyvern egg"; // TODO: is there a resource string for this?
+
         const string targetBossSpawnerID = "Eikthyrnir";
         const string targetBossName = "Eikthyr"; // TODO: is there a resource string for this?
-        const string goalItemID = "DragonEgg";
-        const string goalItemName = "wyvern egg"; // TODO: is there a resource string for this?
+        const string goalItemID = "TrophyEikthyr";
+        const string goalItemName = "Eikthyr trophy"; // TODO: is there a resource string for this?
         
         const float targetItemSpawnHeight = 5;
-        //const float targetItemSpawnCheckDelay = 10;
-        //const float targetItemSpawnCheckInterval = 30;
+        const float targetItemSpawnCheckDelay = 10;
+        const float targetItemSpawnCheckInterval = 30;
 
         private static BetrayerPlugin instance;
 
         // Game variables
-        static bool hasSetupLocations = false;
+        static bool hasSetupPositions = false;
         static Vector3 spawnPosition;
         static Vector3 targetPosition;
         static string betrayerPlayerName = null;
@@ -37,6 +43,7 @@ namespace Betrayer
         public void Awake()
         {
             Harmony.CreateAndPatchAll(GetType());
+            Harmony.CreateAndPatchAll(typeof(PlayerPositions));
         }
 
         [HarmonyPatch(typeof(Game), "Start")]
@@ -46,7 +53,8 @@ namespace Betrayer
             Debug.Log($"GameStart");
             betrayerPlayerName = null;
             betrayerPlayerID = ZDOID.None;
-            hasSetupLocations = false;
+            hasSetupPositions = false;
+            PlayerPositions.peersWhoCanSeeAll.Clear();
         }
 
         private static void SetupLocations()
@@ -57,59 +65,27 @@ namespace Betrayer
 
             targetPosition = (Utils.FindLocation(targetBossSpawnerID) ?? Vector3.zero) + Vector3.up * targetItemSpawnHeight;
 
-            //instance.InvokeRepeating(nameof(SpawnTargetItem), targetItemSpawnCheckDelay, targetItemSpawnCheckInterval);
+            instance.InvokeRepeating(nameof(SpawnTargetItem), targetItemSpawnCheckDelay, targetItemSpawnCheckInterval);
             
-            hasSetupLocations = true;
+            hasSetupPositions = true;
         }
-
-        /*
-        static System.Action delayedAction = null;
-        static double delayedActionTime;
 
         [HarmonyPatch(typeof(Game), "Update")]
-        [HarmonyPostfix]
+        [HarmonyPrefix]
         static void GameTick()
         {
-            if (delayedAction == null)
+            if (!hasSetupPositions)
                 return;
 
-            var currentTime = ZNet.instance.GetTimeSeconds();
 
-            if (currentTime >= delayedActionTime)
+            foreach (var playerInfo in ZNet.instance.GetPlayerList())
             {
-                delayedAction();
-                delayedAction = null;
+                if ((playerInfo.m_position - spawnPosition).sqrMagnitude < 100)
+                {
+                    Utils.Message(playerInfo.m_characterID.userID, MessageHud.MessageType.Center, "You are in the spawn area");
+                }
             }
         }
-        */
-
-        /*
-        // These methods run only on the client.
-        [HarmonyPatch(typeof(Player), nameof(Player.OnSpawned))]
-        [HarmonyPostfix]
-        static void PlayerSpawned(Player __instance)
-        {
-            Debug.Log("DUDE THIS PLAYER SPAWNED!");
-
-            // Ah wait ... this is CLIENT SIDE?
-            Game.instance.DiscoverClosestLocation(targetBossSpawnerID, __instance.transform.position, $"Collect {goalItemName} here", (int)Minimap.PinType.Boss);
-            // Might need to look into copying from RPC_DiscoverClosestLocation for server side stuff.
-
-            // Probably not the right names
-            Game.instance.DiscoverClosestLocation("Guardianstone", __instance.transform.position, $"Return {goalItemName} here", (int)Minimap.PinType.Ping);
-            Game.instance.DiscoverClosestLocation("SacrificialStone", __instance.transform.position, $"Return {goalItemName} here", (int)Minimap.PinType.Ping);
-
-            __instance.Message(MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
-        }
-
-        [HarmonyPatch(typeof(Player), nameof(Player.OnRespawn))]
-        [HarmonyPostfix]
-        static void PlayerRespawned(Player __instance)
-        {
-            Debug.Log("DUDE THIS PLAYER RESPAWNED! So, putting them in ghost mode...");
-            __instance.SetGhostMode(true);
-        }
-        */
 
         [HarmonyPatch(typeof(Player), nameof(Player.IsPVPEnabled))]
         [HarmonyPrefix]
@@ -133,7 +109,7 @@ namespace Betrayer
 
             Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {__instance.GetNrOfPlayers()} player(s)");
 
-            if (!hasSetupLocations)
+            if (!hasSetupPositions)
             {
                 SetupLocations();
             }
@@ -183,8 +159,8 @@ namespace Betrayer
         [HarmonyPostfix]
         static void EveningFalls()
         {
-            if (hasSetupLocations)
-                instance.SpawnTargetItem();
+            //if (hasSetupLocations)
+            //    instance.SpawnTargetItem();
 
             if (betrayerPlayerName == null && Player.m_localPlayer == null)
                 AllocateBetrayer();
@@ -211,7 +187,9 @@ namespace Betrayer
 
             var betrayerPlayer = allPlayers[Random.Range(0, allPlayers.Count - 1)];
 
+            betrayerPlayerID = betrayerPlayer.m_characterID;
             betrayerPlayerName = betrayerPlayer.m_name;
+            PlayerPositions.peersWhoCanSeeAll.Add(betrayerPlayerID.userID);
 
             foreach (var player in allPlayers)
             {
