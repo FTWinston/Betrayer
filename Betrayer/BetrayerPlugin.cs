@@ -58,32 +58,46 @@ namespace Betrayer
             }
 
             // This shows 0 and 0... is it just too early in the life cycle?
-            Debug.Log($"Player spawned, got {Player.GetAllCharacters().Count} characters / {Player.GetAllPlayers().Count} players / {__instance.GetNrOfPlayers()} player count");
+            Debug.Log($"Player {characterID} spawned, got {__instance.GetNrOfPlayers()} player(s)");
+
+            var lookupPlayer = Player.GetPlayer(characterID.userID);
+            Debug.Log($"Lookup player {(lookupPlayer == null ? "is" : "is not ")} null");
 
             foreach (var playerInfo in __instance.GetPlayerList())
             {
-                if (playerInfo.m_characterID == characterID)
+                var peer = __instance.GetPeerByPlayerName(playerInfo.m_name);
+
+                // playerInfo.m_characterID is still ZDOID.None at this point
+                if (peer.m_characterID == characterID)
                 {
-                    Debug.Log($"The player that just spawned was {playerInfo.m_name}");
+                    Debug.Log($"The player that just spawned was {playerInfo.m_name}, and their peer is {peer.m_uid} / {peer.m_characterID}");
+                }
+                else
+                {
+                    Debug.Log($"An unrelated player is {playerInfo.m_name}, with ID {playerInfo.m_characterID}, and their peer is {peer.m_uid} / {peer.m_characterID}");
                 }
             }
 
+            Debug.Log("Done looping over players");
+
+            // This doesn't do it either ... guess this method is just too early in the "spawn" process.
             //Player.MessageAllInRange(Vector3.zero, 1000000, MessageHud.MessageType.Center, "YO HO HO");
 
-            SendMessage(characterID.userID, MessageHud.MessageType.TopLeft, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
+            SendTargetLocation(characterID.userID);
+
+            SendMessage(characterID, MessageHud.MessageType.TopLeft, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
 
             //__instance.GetPlayerList();
 
             //var __instance.GetPeerByPlayerName("name").m_characterID
-
-            SendTargetLocation(characterID.userID);
         }
 
-        private static void SendMessage(long userID, MessageHud.MessageType type, string message)
+        private static void SendMessage(ZDOID targetID, MessageHud.MessageType type, string message)
         {
-            // TODO: this doesn't seem to be showing actually...
-            // Is it just overridden by the "location already added" one?
-            ZRoutedRpc.instance.InvokeRoutedRPC(userID, nameof(Player.Message), (object)(int)type, (object)message);
+            Debug.Log($"Sending message to {targetID}: {message}");
+            
+            // TODO: this doesn't seem to be showing actually... is the call just too soon after spawning?
+            ZRoutedRpc.instance.InvokeRoutedRPC(targetID.userID, targetID, nameof(Player.Message), (object)(int)type, (object)message);
         }
 
         private static void SendMessageToAll(MessageHud.MessageType type, string message)
@@ -111,7 +125,7 @@ namespace Betrayer
             Debug.Log($"Game Start");
             betrayerPlayerName = null;
             betrayerPlayerID = ZDOID.None;
-            
+
             // This is run every time the server starts, so we don't really want it.
             // We only want when a game actually starts from the beginning.
         }
