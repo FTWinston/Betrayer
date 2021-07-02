@@ -57,12 +57,11 @@ namespace Betrayer
                 return;
             }
 
-            // This shows 0 and 0... is it just too early in the life cycle?
-            Debug.Log($"Player {characterID} spawned, got {__instance.GetNrOfPlayers()} player(s)");
+            var peer = __instance.GetPeer(characterID.userID);
 
-            var lookupPlayer = Player.GetPlayer(characterID.userID);
-            Debug.Log($"Lookup player {(lookupPlayer == null ? "is" : "is not ")} null");
+            Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {__instance.GetNrOfPlayers()} player(s)");
 
+            /*
             foreach (var playerInfo in __instance.GetPlayerList())
             {
                 var peer = __instance.GetPeerByPlayerName(playerInfo.m_name);
@@ -77,32 +76,25 @@ namespace Betrayer
                     Debug.Log($"An unrelated player is {playerInfo.m_name}, with ID {playerInfo.m_characterID}, and their peer is {peer.m_uid} / {peer.m_characterID}");
                 }
             }
-
-            Debug.Log("Done looping over players");
-
-            // This doesn't do it either ... guess this method is just too early in the "spawn" process.
-            //Player.MessageAllInRange(Vector3.zero, 1000000, MessageHud.MessageType.Center, "YO HO HO");
+            */
 
             SendTargetLocation(characterID.userID);
 
-            SendMessage(characterID, MessageHud.MessageType.TopLeft, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
-
-            //__instance.GetPlayerList();
-
-            //var __instance.GetPeerByPlayerName("name").m_characterID
+            SendMessage(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
         }
 
-        private static void SendMessage(ZDOID targetID, MessageHud.MessageType type, string message)
+        private static void SendMessage(long userID, MessageHud.MessageType type, string message)
         {
-            Debug.Log($"Sending message to {targetID}: {message}");
+            Debug.Log($"Sending message to {userID}: {message}");
             
-            // TODO: this doesn't seem to be showing actually... is the call just too soon after spawning?
-            ZRoutedRpc.instance.InvokeRoutedRPC(targetID.userID, targetID, nameof(Player.Message), (object)(int)type, (object)message);
+            ZRoutedRpc.instance.InvokeRoutedRPC(userID, nameof(MessageHud.ShowMessage), (object)(int)type, (object)message);
         }
 
         private static void SendMessageToAll(MessageHud.MessageType type, string message)
         {
-            ZRoutedRpc.instance.InvokeRoutedRPC(nameof(Player.Message), (object)(int)type, (object)message);
+            Debug.Log($"Sending message to all: {message}");
+
+            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, nameof(MessageHud.ShowMessage), (object)(int)type, (object)message);
         }
 
         private static void SendTargetLocation(long userID)
@@ -114,7 +106,7 @@ namespace Betrayer
             }
             else
             {
-                Debug.LogWarning($"Failed to find location of {targetBossSpawnerID} for spawning player");
+                Debug.LogWarning($"Failed to find location of {targetBossSpawnerID}, cannot mark map");
             }
         }
 
@@ -134,14 +126,23 @@ namespace Betrayer
         static ZDOID betrayerPlayerID = ZDOID.None;
 
         /*
+        static System.Action delayedAction = null;
+        static double delayedActionTime;
+
         [HarmonyPatch(typeof(Game), "Update")]
         [HarmonyPostfix]
         static void GameTick()
         {
-            var elapsedTime = ZNet.instance.GetTimeSeconds();
+            if (delayedAction == null)
+                return;
 
-            if (betrayerPlayerName == null && elapsedTime >= allocationDelay)
-                AllocateBetrayer();
+            var currentTime = ZNet.instance.GetTimeSeconds();
+
+            if (currentTime >= delayedActionTime)
+            {
+                delayedAction();
+                delayedAction = null;
+            }
         }
         */
 
@@ -155,12 +156,17 @@ namespace Betrayer
 
         public static bool IsBetrayer(Player player)
         {
-            return player.GetZDOID() == betrayerPlayerID;
+            return IsBetrayer(player.GetZDOID());
+        }
+
+        public static bool IsBetrayer(ZDOID playerID)
+        {
+            return playerID == betrayerPlayerID;
         }
 
         private static bool AllocateBetrayer()
         {
-            var allPlayers = Player.GetAllPlayers();
+            var allPlayers = ZNet.instance.GetPlayerList();
 
             if (allPlayers.Count < minimumPlayersToStart)
             {
@@ -173,11 +179,11 @@ namespace Betrayer
 
             foreach (var player in allPlayers)
             {
-                string message = IsBetrayer(player)
+                string message = IsBetrayer(player.m_characterID)
                     ? "You must <color=red>betray</color> your companions.\nStop them from retrieving the wyvern egg!"
                     : "One of your companions has been chosen\nto <color=red>betray</color> you.\nYou are not the betrayer!";
 
-                player.Message(MessageHud.MessageType.Center, message);
+                SendMessage(player.m_characterID.userID, MessageHud.MessageType.Center, message);
             }
 
             return true;
@@ -191,6 +197,8 @@ namespace Betrayer
         [HarmonyPrefix]
         static bool BossSpawnerInteract(OfferingBowl __instance, Humanoid user, bool hold)
         {
+            // TODO: this doesn't fire ... guess it's client-side.
+
             // TODO: ensure this is checking the correct thing...
             if (__instance.m_name != targetBossSpawnerID)
             {
@@ -206,6 +214,8 @@ namespace Betrayer
         [HarmonyPrefix]
         static bool BossSpawnerUse(OfferingBowl __instance, Humanoid user, ItemDrop.ItemData item)
         {
+            // TODO: this doesn't fire ... guess it's client-side.
+
             // TODO: ensure this is checking the correct thing...
             if (__instance.m_name != targetBossSpawnerID)
             {
