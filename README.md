@@ -8,3 +8,5 @@ A Valheim game mode. Very much WIP. Doesn't do anything much, yet.
  * BepInEx plugin guide: https://docs.bepinex.dev/master/articles/dev_guide/plugin_tutorial/index.html
  * HarmonyX patching guide: https://github.com/BepInEx/HarmonyX/wiki/Basic-usage
  * dotPeek to look through assembly_valheim.dll code: https://www.jetbrains.com/decompiler/
+
+* Download and Unzip https://github.com/FTWinston/Betrayer/files/6756571/CopyDLLS.zip into the Betrayer project directory (next to the .csproj) and edit the target directory variable so it'll automatically copy your .dlls over to the install directory
