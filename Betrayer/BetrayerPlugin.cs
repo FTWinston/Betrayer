@@ -7,11 +7,20 @@ namespace Betrayer
     [BepInPlugin("com.ftwinston.valheim.betrayer", "Betrayer", "0.1.0.0")]
     public class BetrayerPlugin : BaseUnityPlugin
     {
+        // TODO: put these in config settings
+        const int minimumPlayersToStart = 3;
+        const string targetBossSpawnerID = "Dragonqueen";
+        const string targetBossName = "Moder"; // TODO: is there a resource string for this?
+        const string goalItemID = "DragonEgg";
+        const string goalItemName = "wyvern egg"; // TODO: is there a resource string for this?
+
         public void Awake()
         {
             Harmony.CreateAndPatchAll(GetType());
         }
 
+        /*
+        // These methods run only on the client.
         [HarmonyPatch(typeof(Player), nameof(Player.OnSpawned))]
         [HarmonyPostfix]
         static void PlayerSpawned(Player __instance)
@@ -19,14 +28,14 @@ namespace Betrayer
             Debug.Log("DUDE THIS PLAYER SPAWNED!");
 
             // Ah wait ... this is CLIENT SIDE?
-            Game.instance.DiscoverClosestLocation("Dragonqueen", __instance.transform.position, "Collect Egg Here", (int)Minimap.PinType.Boss);
+            Game.instance.DiscoverClosestLocation(targetBossSpawnerID, __instance.transform.position, $"Collect {goalItemName} here", (int)Minimap.PinType.Boss);
             // Might need to look into copying from RPC_DiscoverClosestLocation for server side stuff.
 
             // Probably not the right names
-            Game.instance.DiscoverClosestLocation("Guardianstone", __instance.transform.position, "Return Egg Here", (int)Minimap.PinType.Ping);
-            Game.instance.DiscoverClosestLocation("SacrificialStone", __instance.transform.position, "Return Egg Here", (int)Minimap.PinType.Ping);
+            Game.instance.DiscoverClosestLocation("Guardianstone", __instance.transform.position, $"Return {goalItemName} here", (int)Minimap.PinType.Ping);
+            Game.instance.DiscoverClosestLocation("SacrificialStone", __instance.transform.position, $"Return {goalItemName} here", (int)Minimap.PinType.Ping);
 
-            __instance.Message(MessageHud.MessageType.Center, "Work together to bring a wyvern egg\nfrom Moder's altar to the sacrificial stones.\nAt the first nightfall, one of you will be chosen\nto betray the others...");
+            __instance.Message(MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
         }
 
         [HarmonyPatch(typeof(Player), nameof(Player.OnRespawn))]
@@ -35,6 +44,64 @@ namespace Betrayer
         {
             Debug.Log("DUDE THIS PLAYER RESPAWNED! So, putting them in ghost mode...");
             __instance.SetGhostMode(true);
+        }
+        */
+
+        [HarmonyPatch(typeof(ZNet), "RPC_CharacterID")]
+        [HarmonyPostfix]
+        static void PlayerSpawned(ZNet __instance, ZRpc rpc, ZDOID characterID)
+        {
+            if (characterID == ZDOID.None)
+            {
+                // Player died, just been unlinked from their character.
+                return;
+            }
+
+            // This shows 0 and 0... is it just too early in the life cycle?
+            Debug.Log($"Player spawned, got {Player.GetAllCharacters().Count} characters / {Player.GetAllPlayers().Count} players / {__instance.GetNrOfPlayers()} player count");
+
+            foreach (var playerInfo in __instance.GetPlayerList())
+            {
+                if (playerInfo.m_characterID == characterID)
+                {
+                    Debug.Log($"The player that just spawned was {playerInfo.m_name}");
+                }
+            }
+
+            //Player.MessageAllInRange(Vector3.zero, 1000000, MessageHud.MessageType.Center, "YO HO HO");
+
+            SendMessage(characterID.userID, MessageHud.MessageType.TopLeft, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
+
+            //__instance.GetPlayerList();
+
+            //var __instance.GetPeerByPlayerName("name").m_characterID
+
+            SendTargetLocation(characterID.userID);
+        }
+
+        private static void SendMessage(long userID, MessageHud.MessageType type, string message)
+        {
+            // TODO: this doesn't seem to be showing actually...
+            // Is it just overridden by the "location already added" one?
+            ZRoutedRpc.instance.InvokeRoutedRPC(userID, nameof(Player.Message), (object)(int)type, (object)message);
+        }
+
+        private static void SendMessageToAll(MessageHud.MessageType type, string message)
+        {
+            ZRoutedRpc.instance.InvokeRoutedRPC(nameof(Player.Message), (object)(int)type, (object)message);
+        }
+
+        private static void SendTargetLocation(long userID)
+        {
+            ZoneSystem.LocationInstance closest;
+            if (ZoneSystem.instance.FindClosestLocation(targetBossSpawnerID, Vector3.zero, out closest))
+            {
+                ZRoutedRpc.instance.InvokeRoutedRPC(userID, "DiscoverLocationRespons", (object)$"Collect {goalItemName} here", (object)(int)Minimap.PinType.Boss, (object)closest.m_position);
+            }
+            else
+            {
+                Debug.LogWarning($"Failed to find location of {targetBossSpawnerID} for spawning player");
+            }
         }
 
         [HarmonyPatch(typeof(Game), "Start")]
@@ -51,9 +118,6 @@ namespace Betrayer
 
         static string betrayerPlayerName = null;
         static ZDOID betrayerPlayerID = ZDOID.None;
-
-        const int minimumPlayersToStart = 3;
-        const string goalItem = "DragonEgg";
 
         /*
         [HarmonyPatch(typeof(Game), "Update")]
@@ -105,16 +169,39 @@ namespace Betrayer
             return true;
         }
 
+        //public bool Interact(Humanoid user, bool hold);
+        //public bool UseItem(Humanoid user, ItemDrop.ItemData item);
+
+
         [HarmonyPatch(typeof(OfferingBowl), nameof(OfferingBowl.Interact))]
         [HarmonyPrefix]
-        static bool BossSpawnerInteract(OfferingBowl __instance, Humanoid user, ItemDrop.ItemData item)
+        static bool BossSpawnerInteract(OfferingBowl __instance, Humanoid user, bool hold)
         {
-            Debug.Log("Boss spawner interact");
+            // TODO: ensure this is checking the correct thing...
+            if (__instance.m_name != targetBossSpawnerID)
+            {
+                Debug.Log($"Wrong boss spawner interact: {__instance.m_name} found, {targetBossSpawnerID} needed");
+                return true;
+            }
 
-            //if (boss type isnt the selected one)
-                //return true;
+            Debug.Log("Correct boss spawner interact");
+            return false;
+        }
 
-            user.GetInventory().AddItem(goalItem, 1, 1, 0, user.GetOwner(), user.name);
+        [HarmonyPatch(typeof(OfferingBowl), nameof(OfferingBowl.UseItem))]
+        [HarmonyPrefix]
+        static bool BossSpawnerUse(OfferingBowl __instance, Humanoid user, ItemDrop.ItemData item)
+        {
+            // TODO: ensure this is checking the correct thing...
+            if (__instance.m_name != targetBossSpawnerID)
+            {
+                Debug.Log($"Wrong boss spawner use: {__instance.m_name} found, {targetBossSpawnerID} needed");
+                return true;
+            }
+
+            Debug.Log("Correct boss spawner use");
+
+            user.GetInventory().AddItem(goalItemID, 1, 1, 0, user.GetOwner(), user.name);
 
             // Play effect
             if ((bool)(Object)__instance.m_itemSpawnPoint)
