@@ -9,7 +9,6 @@ using UnityEngine;
 
 namespace Betrayer.Powers
 {
-    [HarmonyPatch(typeof(Game), "Start")] //Required for Prefix RPC Registering
     [BepInPlugin("com.ftwinston.valheim.betrayer.eternalnight", "Eternal Night", "0.1.0.0")]
     public class EternalNightPlugin : BaseUnityPlugin
     {
@@ -32,18 +31,7 @@ namespace Betrayer.Powers
             Harmony.CreateAndPatchAll(GetType());
 
         }
-        private static void Prefix()
-        { 
-            ZRoutedRpc.instance.Register("RPC_SendMessage", new Action<long, int, string>(RPC_SendMessage));
-        }
-        private void SendMessageToAll(MessageHud.MessageType type, string message)
-        {
-            ZRoutedRpc.instance.InvokeRoutedRPC(ZNetView.Everybody, "RPC_SendMessage", (object) (int) type, (object)message);
-        }
-        public static void RPC_SendMessage(long user, int type, string message)
-        {
-            Player.m_localPlayer.Message((MessageHud.MessageType)type, message);
-        }
+
         private bool IsReady()
         {
             if (ZNet.instance == null) return false;
@@ -109,6 +97,7 @@ namespace Betrayer.Powers
             dayLengthSec = EnvMan.instance.m_dayLengthSec;
             dayFraction = GetDayFraction(time, dayLengthSec);
         }
+
         private string lastCollapsedLog;
         private int sameCallCount = 0;
         private void SendCollapsedLog(string log)
@@ -125,6 +114,7 @@ namespace Betrayer.Powers
             lastCollapsedLog = log;
             Debug.Log($"PowerHandlerPlugin: {log}");
         } 
+
         void FixedUpdate()
         {
             if (!IsReady()) return;
@@ -149,7 +139,7 @@ namespace Betrayer.Powers
                     {
                         mCurrentState = EternalNightState.Active;
                         Debug.LogWarning($"The Eternal Night Begins");
-                        SendMessageToAll(MessageHud.MessageType.Center, "The Eternal Night has fallen");
+                        Utils.MessageAll(MessageHud.MessageType.Center, "The Eternal Night has fallen");
                         lastDay = day;
                     }
                     break;
@@ -159,7 +149,7 @@ namespace Betrayer.Powers
                 case EternalNightState.SkipToMorning:
                     if (!EnvMan.instance.IsNight())
                     {
-                        SendMessageToAll(MessageHud.MessageType.Center, "You have rested for what feels like an eternity...");
+                        Utils.MessageAll(MessageHud.MessageType.Center, "You have rested for what feels like an eternity...");
                         Debug.LogWarning($"The Eternal Night Has Ended");
                         mCurrentState = EternalNightState.Inactive;
                     }
