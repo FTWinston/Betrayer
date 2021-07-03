@@ -8,89 +8,85 @@ namespace Betrayer
     [BepInPlugin("com.ftwinston.valheim.betrayer", "Betrayer", "0.1.0.0")]
     public class BetrayerPlugin : BaseUnityPlugin
     {
-        // TODO: put these in config settings
-        const int minimumPlayersToAllocateBetrayer = 3;
-
-        //const string targetBossSpawnerID = "Dragonqueen";
-        //const string targetBossName = "Moder"; // TODO: is there a resource string for this?
-        //const string goalItemID = "DragonEgg";
-        //const string goalItemName = "$item_dragonegg";
-
-        const string targetBossSpawnerID = "Eikthyrnir";
-        const string targetBossName = "Eikthyr"; // TODO: is there a resource string for this?
-        const string goalItemID = "TrophyEikthyr";
-        const string goalItemName = "$item_trophy_eikthyr";
-        
-        const float targetItemSpawnHeight = 5;
-        const float targetItemSpawnCheckDelay = 10;
-        const float targetItemSpawnCheckInterval = 30;
+        public enum BetrayerGamePhase
+        {
+            AwaitingFirstPlayer,
+            NotYetAllocated,
+            TravelToTarget,
+            TravelBackToGoal,
+            Finished,
+        }
 
         private static BetrayerPlugin instance;
-
-        // Game variables
-        static bool hasSetupPositions = false;
-        static Vector3 spawnPosition;
-        static Vector3 targetPosition;
-        //static Vector3 afterDeathPosition;
-        static string betrayerPlayerName = null;
-        static ZDOID betrayerPlayerID = ZDOID.None;
-
         public BetrayerPlugin()
         {
             instance = this;
         }
 
-        public void Awake()
-        {
-            Harmony.CreateAndPatchAll(GetType());
-            Harmony.CreateAndPatchAll(typeof(PlayerPositions));
-        }
+        #region config settings
+        private int minimumPlayersToAllocateBetrayer;
+        private string targetLocationID;
+        private string[] welcomeMessages;
+        private string[] allocationMessages;
+        private string[] allocationMessagesBetrayer;
+        private string[] reachedTargetMessages;
+        private string[] reachedTargetMessagesBetrayer;
+        private string[] goalAchievedMessages;
+        private string[] goalAchievedMessagesBetrayer;
+        private string[] betrayerKilledMessages;
+        private string[] betrayerKilledMessagesBetrayer;
+        private string[] playersKilledMessages;
+        private string[] playersKilledMessagesBetrayer;
+        private string playerAtTargetMessage;
+        private string playerAtGoalMessage;
+        private float targetAreaRadiusSq;
+        private float goalAreaRadiusSq;
 
+        private void LoadConfiguration()
+        {
+            minimumPlayersToAllocateBetrayer = Config.Bind("General", "minimumPlayersToAllocate", 3, "This many players must be present before a betrayer will be allocated.").Value;
+            targetLocationID = Config.Bind("General", "destinationLocationID", "Dragonqueen", "The ID of a game location that players must travel to. Suggested values are GDKing (easy), Bonemass, Dragonqueen or GoblinKing. See https://valheim.fandom.com/wiki/World_Limits for a full list.").Value;
+
+            welcomeMessages = Config.BindArray("Messages", "welcome", new[] { "This server is running <color=red>Betrayer</color>.\nPlay with a <color=orange>new character</color>!", "When you die, you will be kicked.\n<color=orange>Your gear will probably be lost.</color>", "Work together to reach a distant target,\nthen return back to the spawn point.", "At sunset, one player will be chosen\nto <color=red>betray</color> the others.", "The <color=red>betrayer</color> should try to kill all the others.", "Please <b>enable PVP</b> manually for now." }, "Messages to show to all players when they first join the game.");
+            allocationMessages = Config.BindArray("Messages", "allocation", new[] { "A <color=red>betrayer</color> has been chosen.\nYou <b>are not</b> the <color=red>betrayer</color>.", "The <color=red>betrayer</color> can always see other players on the map." }, "Messages to show to player (except the betrayer) when the betrayer is allocated.");
+            allocationMessagesBetrayer = Config.BindArray("Messages", "allocationBetrayer", new[] { "A <color=red>betrayer</color> has been chosen.\nYou <b>are</b> the <color=red>betrayer</color>.", "Only you can see other players on the map." }, "Messages to show to the betrayer when they are allocated.");
+            reachedTargetMessages = Config.BindArray("Messages", "reachedTarget", new[] { "The target has been reached, and night has fallen.", "Return to the spawn point\nbefore the <color=red>betrayer</color> can stop you!" }, "Messages to show to players (except the betrayer) when one of them first reaches their target.");
+            reachedTargetMessagesBetrayer = Config.BindArray("Messages", "reachedTargetBetrayer", new[] { "The target has been reached, and night has fallen.", "Stop the other players from\nreturning to the spawn point!" }, "Messages to show to the betrayer when one of the players first reaches their target.");
+            goalAchievedMessages = Config.BindArray("Messages", "goalAchieved", new[] { "The betrayer has been defeated.\n<b>You win!</b>" }, "Messages to show to players (except the betrayer) when they achieve their goal.");
+            goalAchievedMessagesBetrayer = Config.BindArray("Messages", "goalAchievedBetrayer", new[] { "The betrayer has been defeated.\n<b>You lose!</b>" }, "Messages to show to the betrayer when the other players achieve their goal.");
+            betrayerKilledMessages = Config.BindArray("Messages", "betrayerKilled", new[] { "The betrayer has been killed.\n<b>You win!</b>" }, "Messages to show to players (except the betrayer) when the betrayer has been killed.");
+            betrayerKilledMessagesBetrayer = Config.BindArray("Messages", "betrayerKilledBetrayer", new[] { "The betrayer has been killed.\n<b>You lose!</b>" }, "Messages to show to the betrayer when they have been killed.");
+            playersKilledMessages = Config.BindArray("Messages", "playersKilled", new[] { "The betrayer has killed all the other players.\n<b>You lose!</b>" }, "Messages to show to players (except the betrayer) when all other players have been killed.");
+            playersKilledMessagesBetrayer = Config.BindArray("Messages", "playersKilledBetrayer", new[] { "The betrayer has killed all the other players.\n<b>You win!</b>" }, "Messages to show to the betrayer when all other players have been killed.");
+
+            playerAtTargetMessage = Config.Bind("Message", "playerAtTarget", "You have reached the target", "Message to show to a player when they are at the target.").Value;
+            playerAtGoalMessage = Config.Bind("Message", "playerAtGoal", "You have reached the spawn", "Message to show to a player when they are at the spawn, having been to the target.").Value;
+
+            targetAreaRadiusSq = Config.Bind("General", "targetAreaRadius", 5, "The distance from the center of the target point a player must be to count as 'in' it.").Value ^ 2;
+            goalAreaRadiusSq = Config.Bind("General", "spawnAreaRadius", 10, "The distance from the center of the spawn area a player must be to count as 'in' it.").Value ^ 2;
+        }
+        #endregion
+
+        //const string targetBossName = "Moder"; // TODO: is there a resource string for this?
+        const string targetBossName = "Eikthyr"; // TODO: is there a resource string for this?
+
+        #region game variables
+        private readonly Dictionary<long, Queue<string>> playerMessageQueues = new Dictionary<long, Queue<string>>();
+        private readonly HashSet<long> livingCharacters = new HashSet<long>();
+        private readonly HashSet<long> deadCharacters = new HashSet<long>();
+
+        private BetrayerGamePhase currentPhase = BetrayerGamePhase.AwaitingFirstPlayer;
+        private Vector3 finalGoalPosition;
+        private Vector3 targetPosition;
+        //private Vector3 afterDeathPosition;
+        private string betrayerPlayerName = null;
+        private ZDOID betrayerPlayerID = ZDOID.None;
+        #endregion game variables
+
+        #region patches
         [HarmonyPatch(typeof(Game), "Start")]
         [HarmonyPostfix]
-        static void GameStart()
-        {
-            Debug.Log($"GameStart");
-            betrayerPlayerName = null;
-            betrayerPlayerID = ZDOID.None;
-            hasSetupPositions = false;
-            PlayerPositions.canPlayerSeeOthers = _ => true;
-            PlayerPositions.canPlayerBeSeenByOthers = _ => true;
-            livingCharacters.Clear();
-            deadCharacters.Clear();
-        }
-
-        private static void SetupLocations()
-        {
-            Debug.Log("SetupLocations");
-
-            spawnPosition = Utils.FindLocation("StartTemple") ?? Vector3.zero;
-
-            targetPosition = (Utils.FindLocation(targetBossSpawnerID) ?? Vector3.zero) + Vector3.up * targetItemSpawnHeight;
-
-            //afterDeathPosition = Utils.FindLocation("Meteorite") ?? new Vector3(0, 100, -7500);
-
-            instance.InvokeRepeating(nameof(SpawnTargetItem), targetItemSpawnCheckDelay, targetItemSpawnCheckInterval);
-            
-            hasSetupPositions = true;
-        }
-
-        [HarmonyPatch(typeof(Game), "Update")]
-        [HarmonyPrefix]
-        static void GameTick()
-        {
-            if (!hasSetupPositions)
-                return;
-
-
-            foreach (var playerInfo in ZNet.instance.GetPlayerList())
-            {
-                if ((playerInfo.m_position - spawnPosition).sqrMagnitude < 100)
-                {
-                    Utils.Message(playerInfo.m_characterID.userID, MessageHud.MessageType.Center, "You are in the spawn area");
-                }
-            }
-        }
+        static void GameStart() => instance.AwaitFirstPlayer();
 
         [HarmonyPatch(typeof(Player), nameof(Player.IsPVPEnabled))]
         [HarmonyPrefix]
@@ -100,120 +96,120 @@ namespace Betrayer
             return true;
         }
 
-        private static readonly HashSet<long> livingCharacters = new HashSet<long>();
-        private static readonly HashSet<long> deadCharacters = new HashSet<long>();
-
         [HarmonyPatch(typeof(ZNet), "RPC_CharacterID")]
         [HarmonyPrefix]
-        static void DetectDeath(ZNet __instance, ZRpc rpc, ZDOID characterID)
+        static void CharacterIDSet_Before(ZRpc rpc, ZDOID characterID)
         {
-            if (characterID != ZDOID.None)
-                return;
-
-            foreach (var peer in __instance.GetPeers())
-            {
-                if (peer.m_rpc == rpc)
-                {
-                    long peerID = peer.m_characterID.userID;
-
-                    if (peer.m_characterID != characterID && livingCharacters.Remove(peerID))
-                    {
-                        // This player must have just died, they're being unlinked from their character.
-                        deadCharacters.Add(peerID);
-                    }
-                    break;
-                }
-            }
+            if (characterID == ZDOID.None)
+                instance.PlayerKilled(rpc, characterID);
         }
 
         [HarmonyPatch(typeof(ZNet), "RPC_CharacterID")]
         [HarmonyPostfix]
-        static void PlayerSpawned(ZNet __instance, ZRpc rpc, ZDOID characterID)
+        static void CharacterIDSet_After(ZRpc rpc, ZDOID characterID)
         {
-            if (characterID == ZDOID.None)
-            {
-                // Player died, has just been unlinked from their character.
-                return;
-            }
-
-            if (!hasSetupPositions)
-            {
-                SetupLocations();
-            }
-
-            var peer = __instance.GetPeer(characterID.userID);
-
-            if (deadCharacters.Contains(characterID.userID))
-            {
-                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, is already dead");
-                Utils.Kick(characterID.userID);
-                return;
-            }
-            else if (livingCharacters.Contains(characterID.userID))
-            {
-                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, was already alive before ... reconnected?");
-            }
-            else
-            {
-                livingCharacters.Add(characterID.userID);
-
-                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {__instance.GetNrOfPlayers()} player(s)");
-            
-                SendTargetLocation(characterID.userID);
-            }
-
-            Utils.Message(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
-        }
-
-        private static void SendTargetLocation(long userID)
-        {
-            Utils.SendMapLocation(userID, $"Collect {goalItemName} here", targetPosition, Minimap.PinType.Boss);
-
-            // Utils.SendMapLocation(userID, $"Purgatory", afterDeathPosition, Minimap.PinType.Death);
-        }
-
-        private void SpawnTargetItem()
-        {
-            var targetItem = Utils.SpawnItem(goalItemID, targetPosition);
-
-            var targetItemDrop = targetItem
-                .GetComponent<ItemDrop>();
-
-            if (targetItemDrop != null)
-            {
-                targetItemDrop.m_autoPickup = false;
-            }
+            if (characterID != ZDOID.None)
+                instance.PlayerSpawned(characterID);
         }
 
         [HarmonyPatch(typeof(EnvMan), "OnEvening")]
         [HarmonyPostfix]
-        static void EveningFalls()
-        {
-            //if (hasSetupLocations)
-            //    instance.SpawnTargetItem();
+        static void EveningFalls() => instance.AllocateBetrayer();
 
-            if (betrayerPlayerName == null && Player.m_localPlayer == null)
-                AllocateBetrayer();
+        /*
+        [HarmonyPatch(typeof(ItemStand), "RPC_SetVisualItem")]
+        [HarmonyPrefix]
+        static void ItemPlacedOnStand2(ItemStand __instance, string itemName, int variant)
+        {
+            Debug.Log($"Detected {itemName} / {variant} being placed on a stand at {__instance.transform.position}, 2nd method");
         }
 
-        public static bool IsBetrayer(Player player)
+        [HarmonyPatch(typeof(ItemStand), "SetVisualItem")]
+        [HarmonyPrefix]
+        static void ItemPlacedOnStand(ItemStand __instance, string itemName, int variant)
         {
-            return IsBetrayer(player.GetZDOID());
+            Debug.Log($"Detected {itemName} / {variant} being placed on a stand at {__instance.transform.position}");
+        }
+        */
+        #endregion
+
+        #region plugin logic
+        public void Awake()
+        {
+            Harmony.CreateAndPatchAll(GetType());
+            Harmony.CreateAndPatchAll(typeof(PlayerPositions));
+            LoadConfiguration();
         }
 
-        public static bool IsBetrayer(ZDOID playerID)
+        public void FixedUpdate()
         {
-            return playerID == betrayerPlayerID;
+            foreach (var playerInfo in ZNet.instance.GetPlayerList())
+            {
+                if ((playerInfo.m_position - finalGoalPosition).HorizMagnitudeSq() < goalAreaRadiusSq)
+                {
+                    Utils.Message(playerInfo.m_characterID.userID, MessageHud.MessageType.Center, "You are in the spawn area");
+                }
+
+                else if ((playerInfo.m_position - targetPosition).HorizMagnitudeSq() < targetAreaRadiusSq)
+                {
+                    Utils.Message(playerInfo.m_characterID.userID, MessageHud.MessageType.Center, "You are in the target area");
+                }
+            }
         }
 
-        private static bool AllocateBetrayer()
+        private void AwaitFirstPlayer()
         {
+            Debug.Log($"Betrayer started, waiting for first player");
+
+            currentPhase = BetrayerGamePhase.AwaitingFirstPlayer;
+            playerMessageQueues.Clear();
+
+            betrayerPlayerName = null;
+            betrayerPlayerID = ZDOID.None;
+
+            finalGoalPosition = Vector3.zero;
+            targetPosition = Vector3.zero;
+
+            PlayerPositions.canPlayerSeeOthers = _ => true;
+            PlayerPositions.canPlayerBeSeenByOthers = _ => true;
+
+            livingCharacters.Clear();
+            deadCharacters.Clear();
+        }
+
+        private void SetupLocations()
+        {
+            if (currentPhase >= BetrayerGamePhase.NotYetAllocated)
+                return;
+
+            Debug.Log("Setting up game locations");
+
+            currentPhase = BetrayerGamePhase.NotYetAllocated;
+
+            finalGoalPosition = Utils.FindLocation("StartTemple") ?? Vector3.zero;
+
+            targetPosition = (Utils.FindLocation(targetLocationID) ?? Vector3.zero);
+
+            //afterDeathPosition = Utils.FindLocation("Meteorite") ?? new Vector3(0, 100, -7500);
+
+            //InvokeRepeating(nameof(SpawnTargetItem), targetItemSpawnCheckDelay, targetItemSpawnCheckInterval);
+        }
+
+        private bool AllocateBetrayer()
+        {
+            if (betrayerPlayerName != null || currentPhase >= BetrayerGamePhase.TravelToTarget)
+                return false;
+
             var allPlayers = ZNet.instance.GetPlayerList();
 
             if (allPlayers.Count < minimumPlayersToAllocateBetrayer)
             {
+                Debug.Log($"Not enough players to allocate betrayer, got {allPlayers.Count} but need {minimumPlayersToAllocateBetrayer}");
                 return false;
             }
+
+            Debug.Log($"Allocating betrayer");
+            currentPhase = BetrayerGamePhase.TravelToTarget;
 
             var betrayerPlayer = allPlayers[Random.Range(0, allPlayers.Count - 1)];
 
@@ -235,9 +231,93 @@ namespace Betrayer
             return true;
         }
 
+        private void PlayerKilled(ZRpc rpc, ZDOID characterID)
+        {
+            foreach (var peer in ZNet.instance.GetPeers())
+            {
+                if (peer.m_rpc == rpc)
+                {
+                    long peerID = peer.m_characterID.userID;
+
+                    if (peer.m_characterID != characterID && livingCharacters.Remove(peerID))
+                    {
+                        // This player must have just died, they're being unlinked from their character.
+                        deadCharacters.Add(peerID);
+                    }
+                    break;
+                }
+            }
+        }
+
+        private void PlayerSpawned(ZDOID characterID)
+        {
+            if (currentPhase == BetrayerGamePhase.AwaitingFirstPlayer)
+            {
+                SetupLocations();
+            }
+
+            var peer = ZNet.instance.GetPeer(characterID.userID);
+
+            if (deadCharacters.Contains(characterID.userID))
+            {
+                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, is already dead");
+                Utils.Kick(characterID.userID);
+                return;
+            }
+            else if (livingCharacters.Contains(characterID.userID))
+            {
+                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, was already alive before ... reconnected?");
+            }
+            else
+            {
+                livingCharacters.Add(characterID.userID);
+
+                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {ZNet.instance.GetNrOfPlayers()} player(s)");
+
+                SendTargetLocation(characterID.userID);
+            }
+
+            //Utils.Message(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
+        }
+
+        private void SendTargetLocation(long userID)
+        {
+            Utils.SendMapLocation(userID, $"Travel here", targetPosition, Minimap.PinType.Boss);
+
+            // Utils.SendMapLocation(userID, $"Purgatory", afterDeathPosition, Minimap.PinType.Death);
+        }
+
+        /*
+        private void SpawnTargetItem()
+        {
+            var targetItem = Utils.SpawnItem(goalItemID, targetPosition);
+
+            var targetItemDrop = targetItem
+                .GetComponent<ItemDrop>();
+
+            if (targetItemDrop != null)
+            {
+                Debug.Log("Setting auto-pickup to false");
+                targetItemDrop.m_autoPickup = false;
+                targetItemDrop.m_itemData.m_crafterName = "Betrayer";
+            }
+        }
+        */
+
+        public bool IsBetrayer(Player player)
+        {
+            return IsBetrayer(player.GetZDOID());
+        }
+
+        public bool IsBetrayer(ZDOID playerID)
+        {
+            return playerID == betrayerPlayerID;
+        }
+
         /*
         To save world data, patch ZPackage.GetArray, only when called from within World.SaveWorldMetaData, to also save "the betrayer" if that's been set.
         To load world data, patch ZPackage.ReadInt, only when called for the 2nd time from within World.Loadworld, to also load "the betrayer" if specified there.
         */
+        #endregion plugin logic
     }
 }

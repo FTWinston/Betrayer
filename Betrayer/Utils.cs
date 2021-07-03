@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using BepInEx.Configuration;
+using UnityEngine;
 
 namespace Betrayer
 {
@@ -62,6 +63,19 @@ namespace Betrayer
             var performKick = typeof(ZNet).GetMethod("InternalKick", new[] { typeof(ZNetPeer) });
 
             performKick.Invoke(ZNet.instance, new[] { peer });
+        }
+
+        public static string[] BindArray(this ConfigFile config, string section, string key, string[] defaultValue, string description)
+        {
+            var configSetting = config.Bind(section, key, string.Join(" // ", defaultValue), description + " Separate messages with a double slash.");
+
+            return configSetting.Value
+                .Split(new string[] { "//" }, System.StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        public static float HorizMagnitudeSq(this Vector3 vector)
+        {
+            return vector.x * vector.x + vector.z * vector.z;
         }
     }
 }
