@@ -1,4 +1,5 @@
 ﻿using BepInEx.Configuration;
+using System.Reflection;
 using UnityEngine;
 
 namespace Betrayer
@@ -60,7 +61,7 @@ namespace Betrayer
         {
             var peer = ZNet.instance.GetPeer(userID);
 
-            var performKick = typeof(ZNet).GetMethod("InternalKick", new[] { typeof(ZNetPeer) });
+            var performKick = typeof(ZNet).GetMethod("InternalKick", BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(ZNetPeer) }, null);
 
             performKick.Invoke(ZNet.instance, new[] { peer });
         }

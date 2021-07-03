@@ -90,7 +90,7 @@ namespace Betrayer.Powers
         //}
 
         private double lastDay = 0;
-        static void GetDateInfo(out double time, out double day, out long dayLengthSec, out float dayFraction)
+        public static void GetDateInfo(out double time, out double day, out long dayLengthSec, out float dayFraction)
         {
             time = ZNet.instance.GetTimeSeconds();
             day = EnvMan.instance.GetDay(time);
