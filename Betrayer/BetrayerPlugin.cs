@@ -54,7 +54,8 @@ namespace Betrayer
             betrayerPlayerName = null;
             betrayerPlayerID = ZDOID.None;
             hasSetupPositions = false;
-            PlayerPositions.peersWhoCanSeeAll.Clear();
+            PlayerPositions.canPlayerSeeOthers = _ => true;
+            PlayerPositions.canPlayerBeSeenByOthers = _ => true;
             livingCharacters.Clear();
             deadCharacters.Clear();
         }
@@ -218,7 +219,9 @@ namespace Betrayer
 
             betrayerPlayerID = betrayerPlayer.m_characterID;
             betrayerPlayerName = betrayerPlayer.m_name;
-            PlayerPositions.peersWhoCanSeeAll.Add(betrayerPlayerID.userID);
+
+            PlayerPositions.canPlayerSeeOthers = userID => userID == betrayerPlayerID.userID;
+            PlayerPositions.canPlayerBeSeenByOthers = _ => true;
 
             foreach (var player in allPlayers)
             {

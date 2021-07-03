@@ -1,11 +1,13 @@
 ﻿using HarmonyLib;
-using System.Collections.Generic;
+using System;
 
 namespace Betrayer
 {
     static class PlayerPositions
     {
-        public static readonly HashSet<long> peersWhoCanSeeAll = new HashSet<long>();
+        public static Func<long, bool> canPlayerSeeOthers = _ => true;
+
+        public static Func<long, bool> canPlayerBeSeenByOthers = _ => true;
 
         [HarmonyPatch(typeof(ZNet), "UpdatePlayerList")]
         [HarmonyPrefix]
@@ -58,31 +60,39 @@ namespace Betrayer
             if (m_peers.Count <= 0)
                 return false;
 
-            ZPackage seeAllPackage = new ZPackage();
-            seeAllPackage.Write(m_players.Count);
+            ZPackage playersVisiblePackage = new ZPackage();
+            playersVisiblePackage.Write(m_players.Count);
 
-            ZPackage seeNonePackage = new ZPackage();
-            seeNonePackage.Write(m_players.Count);
+            ZPackage allHiddenPackage = new ZPackage();
+            allHiddenPackage.Write(m_players.Count);
 
             foreach (ZNet.PlayerInfo player in m_players)
             {
-                seeAllPackage.Write(player.m_name);
-                seeAllPackage.Write(player.m_host);
-                seeAllPackage.Write(player.m_characterID);
-                seeAllPackage.Write(true);
-                seeAllPackage.Write(player.m_position);
+                playersVisiblePackage.Write(player.m_name);
+                playersVisiblePackage.Write(player.m_host);
+                playersVisiblePackage.Write(player.m_characterID);
 
-                seeNonePackage.Write(player.m_name);
-                seeNonePackage.Write(player.m_host);
-                seeNonePackage.Write(player.m_characterID);
-                seeNonePackage.Write(false);
+                if (canPlayerBeSeenByOthers(player.m_characterID.userID))
+                {
+                    playersVisiblePackage.Write(true);
+                    playersVisiblePackage.Write(player.m_position);
+                }
+                else
+                {
+                    playersVisiblePackage.Write(false);
+                }
+
+                allHiddenPackage.Write(player.m_name);
+                allHiddenPackage.Write(player.m_host);
+                allHiddenPackage.Write(player.m_characterID);
+                allHiddenPackage.Write(false);
             }
 
             foreach (ZNetPeer peer in m_peers)
             {
                 if (peer.IsReady())
                 {
-                    var package = peersWhoCanSeeAll.Contains(peer.m_uid) ? seeAllPackage : seeNonePackage;
+                    var package = canPlayerSeeOthers(peer.m_uid) ? playersVisiblePackage : allHiddenPackage;
                     peer.m_rpc.Invoke("PlayerList", (object)package);
                 }
             }
