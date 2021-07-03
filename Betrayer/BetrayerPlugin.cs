@@ -2,7 +2,6 @@
 using HarmonyLib;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace Betrayer
 {
@@ -15,12 +14,12 @@ namespace Betrayer
         //const string targetBossSpawnerID = "Dragonqueen";
         //const string targetBossName = "Moder"; // TODO: is there a resource string for this?
         //const string goalItemID = "DragonEgg";
-        //const string goalItemName = "wyvern egg"; // TODO: is there a resource string for this?
+        //const string goalItemName = "$item_dragonegg";
 
         const string targetBossSpawnerID = "Eikthyrnir";
         const string targetBossName = "Eikthyr"; // TODO: is there a resource string for this?
         const string goalItemID = "TrophyEikthyr";
-        const string goalItemName = "Eikthyr trophy"; // TODO: is there a resource string for this?
+        const string goalItemName = "$item_trophy_eikthyr";
         
         const float targetItemSpawnHeight = 5;
         const float targetItemSpawnCheckDelay = 10;
@@ -32,6 +31,7 @@ namespace Betrayer
         static bool hasSetupPositions = false;
         static Vector3 spawnPosition;
         static Vector3 targetPosition;
+        //static Vector3 afterDeathPosition;
         static string betrayerPlayerName = null;
         static ZDOID betrayerPlayerID = ZDOID.None;
 
@@ -55,6 +55,8 @@ namespace Betrayer
             betrayerPlayerID = ZDOID.None;
             hasSetupPositions = false;
             PlayerPositions.peersWhoCanSeeAll.Clear();
+            livingCharacters.Clear();
+            deadCharacters.Clear();
         }
 
         private static void SetupLocations()
@@ -64,6 +66,8 @@ namespace Betrayer
             spawnPosition = Utils.FindLocation("StartTemple") ?? Vector3.zero;
 
             targetPosition = (Utils.FindLocation(targetBossSpawnerID) ?? Vector3.zero) + Vector3.up * targetItemSpawnHeight;
+
+            //afterDeathPosition = Utils.FindLocation("Meteorite") ?? new Vector3(0, 100, -7500);
 
             instance.InvokeRepeating(nameof(SpawnTargetItem), targetItemSpawnCheckDelay, targetItemSpawnCheckInterval);
             
@@ -95,44 +99,67 @@ namespace Betrayer
             return true;
         }
 
+        private static readonly HashSet<long> livingCharacters = new HashSet<long>();
+        private static readonly HashSet<long> deadCharacters = new HashSet<long>();
+
+        [HarmonyPatch(typeof(ZNet), "RPC_CharacterID")]
+        [HarmonyPrefix]
+        static void DetectDeath(ZNet __instance, ZRpc rpc, ZDOID characterID)
+        {
+            if (characterID != ZDOID.None)
+                return;
+
+            foreach (var peer in __instance.GetPeers())
+            {
+                if (peer.m_rpc == rpc)
+                {
+                    long peerID = peer.m_characterID.userID;
+
+                    if (peer.m_characterID != characterID && livingCharacters.Remove(peerID))
+                    {
+                        // This player must have just died, they're being unlinked from their character.
+                        deadCharacters.Add(peerID);
+                    }
+                    break;
+                }
+            }
+        }
+
         [HarmonyPatch(typeof(ZNet), "RPC_CharacterID")]
         [HarmonyPostfix]
         static void PlayerSpawned(ZNet __instance, ZRpc rpc, ZDOID characterID)
         {
             if (characterID == ZDOID.None)
             {
-                // Player died, just been unlinked from their character.
+                // Player died, has just been unlinked from their character.
                 return;
             }
-
-            var peer = __instance.GetPeer(characterID.userID);
-
-            Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {__instance.GetNrOfPlayers()} player(s)");
 
             if (!hasSetupPositions)
             {
                 SetupLocations();
             }
 
+            var peer = __instance.GetPeer(characterID.userID);
 
-            /*
-            foreach (var playerInfo in __instance.GetPlayerList())
+            if (deadCharacters.Contains(characterID.userID))
             {
-                var peer = __instance.GetPeerByPlayerName(playerInfo.m_name);
-
-                // playerInfo.m_characterID is still ZDOID.None at this point
-                if (peer.m_characterID == characterID)
-                {
-                    Debug.Log($"The player that just spawned was {playerInfo.m_name}, and their peer is {peer.m_uid} / {peer.m_characterID}");
-                }
-                else
-                {
-                    Debug.Log($"An unrelated player is {playerInfo.m_name}, with ID {playerInfo.m_characterID}, and their peer is {peer.m_uid} / {peer.m_characterID}");
-                }
+                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, is already dead");
+                Utils.Kick(characterID.userID);
+                return;
             }
-            */
+            else if (livingCharacters.Contains(characterID.userID))
+            {
+                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, was already alive before ... reconnected?");
+            }
+            else
+            {
+                livingCharacters.Add(characterID.userID);
 
-            SendTargetLocation(characterID.userID);
+                Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, got {__instance.GetNrOfPlayers()} player(s)");
+            
+                SendTargetLocation(characterID.userID);
+            }
 
             Utils.Message(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
         }
@@ -140,6 +167,8 @@ namespace Betrayer
         private static void SendTargetLocation(long userID)
         {
             Utils.SendMapLocation(userID, $"Collect {goalItemName} here", targetPosition, Minimap.PinType.Boss);
+
+            // Utils.SendMapLocation(userID, $"Purgatory", afterDeathPosition, Minimap.PinType.Death);
         }
 
         private void SpawnTargetItem()
@@ -204,71 +233,8 @@ namespace Betrayer
         }
 
         /*
-        [HarmonyPatch(typeof(OfferingBowl), nameof(OfferingBowl.Interact))]
-        [HarmonyPrefix]
-        static bool BossSpawnerInteract(OfferingBowl __instance, Humanoid user, bool hold)
-        {
-            // TODO: this doesn't fire ... guess it's client-side.
-
-            // TODO: ensure this is checking the correct thing...
-            if (__instance.m_name != targetBossSpawnerID)
-            {
-                Debug.Log($"Wrong boss spawner interact: {__instance.m_name} found, {targetBossSpawnerID} needed");
-                return true;
-            }
-
-            Debug.Log("Correct boss spawner interact");
-            return false;
-        }
-
-        [HarmonyPatch(typeof(OfferingBowl), nameof(OfferingBowl.UseItem))]
-        [HarmonyPrefix]
-        static bool BossSpawnerUse(OfferingBowl __instance, Humanoid user, ItemDrop.ItemData item)
-        {
-            // TODO: this doesn't fire ... guess it's client-side.
-
-            // TODO: ensure this is checking the correct thing...
-            if (__instance.m_name != targetBossSpawnerID)
-            {
-                Debug.Log($"Wrong boss spawner use: {__instance.m_name} found, {targetBossSpawnerID} needed");
-                return true;
-            }
-
-            Debug.Log("Correct boss spawner use");
-
-            user.GetInventory().AddItem(goalItemID, 1, 1, 0, user.GetOwner(), user.name);
-
-            // Play effect
-            if ((bool)(Object)__instance.m_itemSpawnPoint)
-                __instance.m_fuelAddedEffects.Create(__instance.m_itemSpawnPoint.position, __instance.transform.rotation);
-
-            // If no betrayer already allocated, definitely do so now...
-            if (betrayerPlayerName == null && !AllocateBetrayer())
-                user.Message(MessageHud.MessageType.Center, "$msg_offerdone");
-
-            return false; // Returning false disables the original method.
-        }
-        */
-
-        // TODO: detect item dropping back at the start ... somehow
-
-        /*
         To save world data, patch ZPackage.GetArray, only when called from within World.SaveWorldMetaData, to also save "the betrayer" if that's been set.
         To load world data, patch ZPackage.ReadInt, only when called for the 2nd time from within World.Loadworld, to also load "the betrayer" if specified there.
-        */
-
-        /*
-        Have the raven introduce everything you need. Raven.Spawn and/or Raven.Talk are the methods to override there...
-
-        Oh dear ... is he only handled locally? He does this check:
-        
-          private void CheckSpawn()
-          {
-            if ((UnityEngine.Object) Player.m_localPlayer == (UnityEngine.Object) null)
-              return;
-
-            ...
-          }
         */
     }
 }

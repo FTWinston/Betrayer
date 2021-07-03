@@ -12,7 +12,7 @@ namespace Betrayer
         private static bool UpdatePlayerList(ZNet __instance)
         {
             var m_players = __instance.GetPlayerList();
-            var m_peers = __instance.GetConnectedPeers();
+            var m_peers = __instance.GetPeers();
 
             m_players.Clear();
             /*
@@ -53,7 +53,7 @@ namespace Betrayer
             UpdatePlayerList(__instance);
 
             var m_players = __instance.GetPlayerList();
-            var m_peers = __instance.GetConnectedPeers();
+            var m_peers = __instance.GetPeers();
 
             if (m_peers.Count <= 0)
                 return false;

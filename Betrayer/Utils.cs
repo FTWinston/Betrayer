@@ -54,5 +54,14 @@ namespace Betrayer
 
             ZRoutedRpc.instance.InvokeRoutedRPC(userID, "DiscoverLocationRespons", (object)label, (object)(int)type, (object)position);
         }
+
+        public static void Kick(long userID)
+        {
+            var peer = ZNet.instance.GetPeer(userID);
+
+            var performKick = typeof(ZNet).GetMethod("InternalKick", new[] { typeof(ZNetPeer) });
+
+            performKick.Invoke(ZNet.instance, new[] { peer });
+        }
     }
 }
