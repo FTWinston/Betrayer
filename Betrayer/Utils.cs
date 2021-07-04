@@ -1,4 +1,5 @@
 ﻿using BepInEx.Configuration;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
@@ -13,11 +14,27 @@ namespace Betrayer
             ZRoutedRpc.instance.InvokeRoutedRPC(userID, nameof(MessageHud.ShowMessage), (object)(int)type, (object)message);
         }
 
+        private static Vector3 farAway = new Vector3(0, -10000, 0);
+
+        public static void ChatMessage(long userID, string sender, string message)
+        {
+            Debug.Log($"Sending chat message to {userID}: {message}");
+
+            ZRoutedRpc.instance.InvokeRoutedRPC(userID, "ChatMessage", (object)farAway, (object)1, (object)sender, (object)message);
+        }
+
         public static void MessageAll(MessageHud.MessageType type, string message)
         {
             Debug.Log($"Sending message to all: {message}");
 
             ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, nameof(MessageHud.ShowMessage), (object)(int)type, (object)message);
+        }
+
+        public static void ChatMessageAll(long userID, string sender, string message)
+        {
+            Debug.Log($"Sending chat message to all: {message}");
+
+            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "ChatMessage", (object)farAway, (object)1, (object)sender, (object)message);
         }
 
         public static GameObject SpawnItem(string type, Vector3 position)
@@ -57,6 +74,32 @@ namespace Betrayer
             ZRoutedRpc.instance.InvokeRoutedRPC(userID, "DiscoverLocationRespons", (object)label, (object)(int)type, (object)position);
         }
 
+        public static void StartEvent(string eventName, Vector3 position)
+        {
+            /*
+            army_eikthyr
+            army_goblin
+            army_theelder
+            wolves
+            skeletons
+            army_bonemass
+            army_moder
+            blobs
+            foresttrolls
+            surtlings
+            */
+            RandEventSystem.instance.SetRandomEventByName(eventName, position);
+
+            //ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "SetEvent", (object)eventName, (object)duration, (object)position);
+        }
+
+        public static void EndEvent()
+        {
+            RandEventSystem.instance.ResetRandomEvent();
+
+            //ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, "SetEvent", (object)"", (object)0.0f, (object)Vector3.zero);
+        }
+
         public static void Kick(long userID)
         {
             var peer = ZNet.instance.GetPeer(userID);
@@ -71,7 +114,9 @@ namespace Betrayer
             var configSetting = config.Bind(section, key, string.Join(" // ", defaultValue), description + " Separate messages with a double slash.");
 
             return configSetting.Value
-                .Split(new string[] { "//" }, System.StringSplitOptions.RemoveEmptyEntries);
+                .Split(new string[] { "//" }, System.StringSplitOptions.RemoveEmptyEntries)
+                .Select(val => val.Trim())
+                .ToArray();
         }
 
         public static float HorizMagnitudeSq(this Vector3 vector)

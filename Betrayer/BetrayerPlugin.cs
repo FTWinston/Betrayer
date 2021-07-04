@@ -1,9 +1,9 @@
 ﻿using BepInEx;
 using Betrayer.Powers;
 using HarmonyLib;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace Betrayer
@@ -74,9 +74,6 @@ namespace Betrayer
         }
         #endregion
 
-        //const string targetBossName = "Moder"; // TODO: is there a resource string for this?
-        const string targetBossName = "Eikthyr"; // TODO: is there a resource string for this?
-
         #region game variables
         private readonly Dictionary<long, Queue<string>> playerMessageQueues = new Dictionary<long, Queue<string>>();
         private readonly HashSet<long> livingCharacters = new HashSet<long>();
@@ -140,6 +137,14 @@ namespace Betrayer
             Debug.Log($"Detected {itemName} / {variant} being placed on a stand at {__instance.transform.position}");
         }
         */
+
+        [HarmonyPatch(typeof(ZNet), nameof(ZNet.Disconnect))]
+        [HarmonyPostfix]
+        static void Disconnected(ZNetPeer peer)
+        {
+            if (ZNet.instance.GetNrOfPlayers() == 0)
+                instance.LastPlayerQuit();
+        }
         #endregion
 
         #region plugin logic
@@ -181,6 +186,9 @@ namespace Betrayer
             bool justReachedTarget = false;
             foreach (var playerInfo in ZNet.instance.GetPlayerList())
             {
+                // Surely setting this true every tick is overkill, but let's try it out...
+                ZDOMan.instance.GetZDO(playerInfo.m_characterID).Set("pvp", true);
+
                 if ((playerInfo.m_position - targetPosition).HorizMagnitudeSq() < targetAreaRadiusSq)
                 {
                     if (charactersWhoReachedTarget.Add(playerInfo.m_characterID.userID))
@@ -213,7 +221,7 @@ namespace Betrayer
                 }
                 else
                 {
-                    Utils.Message(entry.Key, MessageHud.MessageType.TopLeft, message);
+                    Utils.ChatMessage(entry.Key, "Info", message);
                 }
             }
         }
@@ -303,6 +311,7 @@ namespace Betrayer
             fixedMidnightTime = day * dayLengthSec;
 
             //EternalNightPlugin.instance.Activate();
+            //Utils.StartEvent("foresttrolls", targetPosition);
         }
 
         private void GoalReached(ZNet.PlayerInfo player)
@@ -360,8 +369,6 @@ namespace Betrayer
                 SendTargetLocation(characterID.userID);
                 QueueHelpMessages(characterID.userID, welcomeMessages);
             }
-
-            //Utils.Message(characterID.userID, MessageHud.MessageType.Center, $"Work together to bring a {goalItemName}\nfrom {targetBossName}'s altar to the sacrificial stones.\nAt nightfall, one of you will be chosen\nto betray the others...");
         }
 
         private void PlayerKilled(ZRpc rpc)
@@ -464,6 +471,26 @@ namespace Betrayer
         To save world data, patch ZPackage.GetArray, only when called from within World.SaveWorldMetaData, to also save "the betrayer" if that's been set.
         To load world data, patch ZPackage.ReadInt, only when called for the 2nd time from within World.Loadworld, to also load "the betrayer" if specified there.
         */
+
+        private void LastPlayerQuit()
+        {
+            Debug.Log("Last player quit, attempting to delete the world");
+
+            var worldName = ZNet.instance.GetWorldName();
+            World.RemoveWorld(worldName);
+            Application.Quit();
+
+            /*
+            var world = World.GetCreateWorld(worldName);
+
+            var worldField = typeof(ZNet).GetField("m_world", BindingFlags.NonPublic | BindingFlags.Static);
+            worldField.SetValue(null, world);
+
+            WorldGenerator.Initialize(world);
+            ZNet.ResetServerHost();
+            */
+        }
+
         #endregion plugin logic
     }
 }
