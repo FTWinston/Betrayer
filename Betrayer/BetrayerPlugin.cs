@@ -46,6 +46,10 @@ namespace Betrayer
         private float targetAreaRadiusSq;
         private float goalAreaRadiusSq;
         private float helpMessageInterval;
+        private string[] startingGearItems;
+        private int[] startingGearQuantities;
+        private string[] betrayerGearItems;
+        private int[] betrayerGearQuantities;
 
         private void LoadConfiguration()
         {
@@ -71,6 +75,30 @@ namespace Betrayer
             goalAreaRadiusSq = Config.Bind("General", "spawnAreaRadius", 10, "The distance from the center of the spawn area a player must be to count as 'in' it.").Value ^ 2;
 
             helpMessageInterval = Config.Bind("General", "helpMessageInterval", 8f, "The time between help messages, shown to the player.").Value;
+
+            var startingGear = Config.BindArray("General", "startingGear", new[] { "AxeBronze", "PickaxeAntler", "BronzeNails,80", "Resin,20" }, "List of items to give each player at the start of the game. To give multiple of an item, include a comma and a number immediately after its name.")
+                .Select(item => item.Split(','))
+                .ToArray();
+
+            startingGearItems = startingGear
+                .Select(item => item[0])
+                .ToArray();
+
+            startingGearQuantities = startingGear
+                .Select(item => item.Length < 2 ? 1 : int.Parse(item[1]))
+                .ToArray();
+
+            var betrayerGear = Config.BindArray("General", "betrayerGear", new[] { "CapeWolf", "BowHuntsman", "ArrowFlint,20" }, "List of items to give to the betrayer when they are allocated. To give multiple of an item, include a comma and a number immediately after its name.")
+                .Select(item => item.Split(','))
+                .ToArray();
+
+            betrayerGearItems = betrayerGear
+                .Select(item => item[0])
+                .ToArray();
+
+            betrayerGearQuantities = betrayerGear
+                .Select(item => item.Length < 2 ? 1 : int.Parse(item[1]))
+                .ToArray();
         }
         #endregion
 
@@ -367,6 +395,7 @@ namespace Betrayer
                 Debug.Log($"Player {characterID} / {peer?.m_playerName} spawned, they're new");
 
                 SendTargetLocation(characterID.userID);
+                GiveItems(characterID.userID, startingGearItems, startingGearQuantities);
                 QueueHelpMessages(characterID.userID, welcomeMessages);
             }
         }
@@ -438,6 +467,27 @@ namespace Betrayer
             Utils.SendMapLocation(userID, $"Travel here", targetPosition, Minimap.PinType.Boss);
 
             // Utils.SendMapLocation(userID, $"Purgatory", afterDeathPosition, Minimap.PinType.Death);
+        }
+
+        private void GiveItems(long userID, string[] itemNames, int[] itemCounts)
+        {
+            var position = ZNet.instance.GetPeer(userID).m_refPos;
+
+            for (int i = 0; i < itemNames.Length; i++)
+            {
+                var itemName = itemNames[i];
+                var quantity = itemCounts[i];
+
+                var item = Utils.SpawnItem(itemName, position);
+
+                var itemDrop = item
+                    .GetComponent<ItemDrop>();
+
+                if (itemDrop != null)
+                {
+                    itemDrop.m_itemData.m_quality = quantity;
+                }
+            }
         }
 
         /*
