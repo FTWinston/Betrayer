@@ -45,6 +45,7 @@ namespace Betrayer
         private string playerAtGoalMessage;
         private float targetAreaRadiusSq;
         private float goalAreaRadiusSq;
+        private float goalVisibilityHiddenRadiusSq;
         private float helpMessageInterval;
         private string[] startingGearItems;
         private int[] startingGearQuantities;
@@ -73,6 +74,7 @@ namespace Betrayer
 
             targetAreaRadiusSq = Config.Bind("General", "targetAreaRadius", 5, "The distance from the center of the target point a player must be to count as 'in' it.").Value ^ 2;
             goalAreaRadiusSq = Config.Bind("General", "spawnAreaRadius", 10, "The distance from the center of the spawn area a player must be to count as 'in' it.").Value ^ 2;
+            goalVisibilityHiddenRadiusSq = Config.Bind("General", "spawnVisibilityHiddenRadius", 150, "When returning to the spawn, players will no longer be visible to the betrayer if they are within this distance from it.").Value ^ 2;
 
             helpMessageInterval = Config.Bind("General", "helpMessageInterval", 8f, "The time between help messages, shown to the player.").Value;
 
@@ -448,7 +450,8 @@ namespace Betrayer
             betrayerPlayerName = betrayerPlayer.m_name;
 
             PlayerPositions.canPlayerSeeOthers = userID => userID == betrayerUserID;
-            PlayerPositions.canPlayerBeSeenByOthers = _ => true;
+            PlayerPositions.canPlayerBeSeenByOthers = userID => this.currentPhase != BetrayerGamePhase.TravelBackToGoal
+                || (ZNet.instance.GetPeer(userID).m_refPos - finalGoalPosition).HorizMagnitudeSq() > goalVisibilityHiddenRadiusSq;
 
             foreach (var playerInfo in allPlayers)
             {
