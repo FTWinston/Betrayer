@@ -1,5 +1,7 @@
 ﻿using HarmonyLib;
 using System;
+using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Betrayer
 {
@@ -17,19 +19,18 @@ namespace Betrayer
             var m_peers = __instance.GetPeers();
 
             m_players.Clear();
-            /*
+            
             if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null)
             {
                 ZNet.PlayerInfo playerInfo = new ZNet.PlayerInfo();
                 playerInfo.m_name = Game.instance.GetPlayerProfile().GetName();
                 playerInfo.m_host = "";
-                playerInfo.m_characterID = __instance.m_characterID;
-                playerInfo.m_publicPosition = __instance.m_publicReferencePosition;
+                playerInfo.m_characterID = (ZDOID)typeof(ZNet).GetField("m_characterID", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(__instance);
+                playerInfo.m_publicPosition = __instance.IsReferencePositionPublic();
                 //if (playerInfo.m_publicPosition)
-                playerInfo.m_position = __instance.m_referencePosition;
-                __instance.m_players.Add(playerInfo);
+                playerInfo.m_position = __instance.GetReferencePosition();
+                m_players.Add(playerInfo);
             }
-            */
             foreach (ZNetPeer peer in m_peers)
             {
                 if (peer.IsReady())
